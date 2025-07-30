@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, User, Package, LogOut, Edit } from "lucide-react";
 import { userAPI } from "@/utils/api";
 import { useAuth } from "@/context/authContext";
+import { Navigation } from "@/components/Navigation";
 
 interface UserData {
   id: number;
@@ -30,9 +31,12 @@ interface Order {
   items: unknown[];
   totalAmount: number;
   status: string;
+  orderType: string;
+  tableNumber?: string;
   deliveryAddress?: string;
   customerName: string;
   customerPhone?: string;
+  orderNotes?: string;
   createdAt: string;
 }
 
@@ -101,7 +105,7 @@ const UserDashboard = () => {
       setUser(data.user);
       setSuccess("Profile updated successfully");
       setEditMode(false);
-      fetchUserData()
+      fetchUserData();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Update failed");
     } finally {
@@ -156,10 +160,12 @@ const UserDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-background">
+      <Navigation />
+
+      <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-playfair font-bold">My Account</h1>
+          <h1 className="text-3xl font-bold text-gray-900">My Account</h1>
           <Button onClick={handleLogout} variant="outline">
             <LogOut className="h-4 w-4 mr-2" />
             Logout

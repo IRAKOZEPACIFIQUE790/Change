@@ -47,14 +47,14 @@ export const MenuHeader = ({ activeCategory, onCategoryChange }: MenuHeaderProps
           </nav>
 
           {/* Right: Account Button */}
-          <div className="flex items-center flex-shrink-0">
+          {/* <div className="flex items-center flex-shrink-0">
             <Button variant="outline" size="sm" className="border-gold/40 hover:bg-gold/10 shadow-gold text-luxury font-semibold px-5 py-2 rounded-lg transition-all"
               onClick={() => navigate("/login")}
             >
               <User className="h-5 w-5 mr-2" />
               Account
             </Button>
-          </div>
+          </div> */}
         </div>
         {/* Divider under nav for polish */}
         <div className="hidden md:block border-t border-border/60 mt-5" />

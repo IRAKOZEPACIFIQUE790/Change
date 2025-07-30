@@ -49,9 +49,6 @@ app.use(
         "http://127.0.0.1:8080",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
-        "https://localhost:8080",
-        "https://localhost:3000",
-        "https://localhost:5173",
       ];
 
       if (allowedOrigins.indexOf(origin) !== -1) {
@@ -72,6 +69,9 @@ app.options("*", cors());
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Serve uploaded images
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Request logging middleware
 app.use((req, res, next) => {

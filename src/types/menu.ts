@@ -1,24 +1,17 @@
-
 export interface MenuItemType {
-  id: string;
+  id: number;
   name: string;
   description: string;
   price: number;
-  emoji: string;
+  category: string;
   image?: string;
   rating: number;
   prepTime?: string;
   popular?: boolean;
+  isAvailable?: boolean;
+  emoji?: string;
 }
 
 export interface CartItem extends MenuItemType {
   quantity: number;
-}
-
-export interface MenuData {
-  beverages: MenuItemType[];
-  mainDishes: MenuItemType[];
-  snacks: MenuItemType[];
-  desserts: MenuItemType[];
-  appetizers: MenuItemType[];
 }
