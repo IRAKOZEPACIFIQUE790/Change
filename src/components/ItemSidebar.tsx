@@ -25,7 +25,7 @@ export const ItemSidebar = ({
   );
 
   return (
-    <div className="w-80 bg-card border-l border-border shadow-professional h-full flex flex-col animate-slide-in-right">
+    <div className="w-80 bg-card border-l border-border shadow-professional  flex flex-col animate-slide-in-right">
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex items-center justify-between p-3 border-b border-border">

@@ -15,12 +15,22 @@ const {
   deleteMenuItem,
   getAllOrders,
   updateOrderStatus,
+  getAdminProfile,
+  getNotificationCount,
+  getNotifications,
   upload,
 } = require("../controllers/adminController");
 
 // Admin Authentication
 router.post("/register", validateAdminRegistration, registerAdmin);
 router.post("/login", loginAdmin);
+
+// Admin Profile
+router.get("/profile", authenticateAdmin, getAdminProfile);
+
+// Notifications
+router.get("/notifications/count", authenticateAdmin, getNotificationCount);
+router.get("/notifications", authenticateAdmin, getNotifications);
 
 // Image Upload
 router.post(

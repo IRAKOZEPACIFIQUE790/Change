@@ -43,8 +43,8 @@ const AdminRegisterPage = () => {
         email: formData.email,
         password: formData.password
       });
-      localStorage.setItem('adminToken', data.token);
-      localStorage.setItem('adminData', JSON.stringify(data.admin));
+      localStorage.setItem('adminToken', data.data.token);
+      localStorage.setItem('adminData', JSON.stringify(data.data.admin));
       navigate('/admin/dashboard');
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Registration failed');

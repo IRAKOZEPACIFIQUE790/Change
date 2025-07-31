@@ -7,7 +7,9 @@ const {
   updateUserProfile,
   createOrder,
   getUserOrders,
-  cancelOrder
+  cancelOrder,
+  getUserNotificationCount,
+  getUserNotifications
 } = require('../controllers/userController');
 const { authenticateUser } = require('../middleware/auth');
 const { 
@@ -23,6 +25,10 @@ router.post('/login', validateUserLogin, loginUser);
 // User Profile Routes (Protected)
 router.get('/profile', authenticateUser, getUserProfile);
 router.put('/profile', authenticateUser, updateUserProfile);
+
+// Notifications (Protected)
+router.get('/notifications/count', authenticateUser, getUserNotificationCount);
+router.get('/notifications', authenticateUser, getUserNotifications);
 
 // Order Routes (Protected)
 router.post('/orders', authenticateUser, validateOrder, createOrder);

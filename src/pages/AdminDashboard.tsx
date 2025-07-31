@@ -313,7 +313,7 @@ const AdminDashboard = () => {
   const totalOrders = orders.length;
   const pendingOrders = orders.filter((o) => o.status === "pending").length;
   const totalRevenue = orders.reduce(
-    (sum, order) => sum + order.totalAmount,
+    (sum, order) => sum + (Number(order.totalAmount) || 0),
     0
   );
   const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;

@@ -8,11 +8,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, MapPin, User, Phone, Hash, Utensils } from "lucide-react";
+import { Loader2, Utensils } from "lucide-react";
 import { CartItem } from "@/types/menu";
 import { convertToRWF } from "@/utils/currency";
 
@@ -26,6 +24,7 @@ interface OrderModalProps {
     phone?: string;
     address?: string;
   };
+  tableNumber?: string; // Will come from QR code scan
 }
 
 export const OrderModal = ({
@@ -34,17 +33,13 @@ export const OrderModal = ({
   cartItems,
   onOrderSuccess,
   userData,
+  tableNumber = 1,
 }: OrderModalProps) => {
   const [formData, setFormData] = useState({
-    customerName: userData?.name || "",
-    customerPhone: userData?.phone || "",
-    deliveryAddress: userData?.address || "",
-    tableNumber: "",
     orderNotes: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [orderType, setOrderType] = useState<"dine-in" | "delivery">("dine-in");
 
   const total = cartItems.reduce(
     (sum, item) => sum + convertToRWF(item.price) * item.quantity,
@@ -70,15 +65,15 @@ export const OrderModal = ({
         return;
       }
 
-      // Validate required fields based on order type
-      if (orderType === "dine-in" && !formData.tableNumber.trim()) {
-        setError("Please enter your table number");
+      // Validate that we have user data and table number
+      if (!userData?.name) {
+        setError("User profile data is missing");
         setIsSubmitting(false);
         return;
       }
 
-      if (orderType === "delivery" && !formData.deliveryAddress.trim()) {
-        setError("Please enter your delivery address");
+      if (!tableNumber) {
+        setError("Table number is missing. Please scan the QR code on your table.");
         setIsSubmitting(false);
         return;
       }
@@ -93,13 +88,11 @@ export const OrderModal = ({
           emoji: item.emoji,
         })),
         totalAmount: total,
-        customerName: formData.customerName,
-        customerPhone: formData.customerPhone,
-        deliveryAddress:
-          orderType === "delivery" ? formData.deliveryAddress : null,
-        tableNumber: orderType === "dine-in" ? formData.tableNumber : null,
+        customerName: userData.name,
+        customerPhone: userData.phone || "",
+        tableNumber: tableNumber,
         orderNotes: formData.orderNotes,
-        orderType: orderType,
+        orderType: "dine-in",
       };
 
       // Make API call to create order
@@ -124,11 +117,7 @@ export const OrderModal = ({
 
       // Show success message
       alert(
-        `Order placed successfully! ${
-          orderType === "dine-in"
-            ? `Your order will be served at table ${formData.tableNumber}`
-            : "Your order will be delivered to your address"
-        }`
+        `Order placed successfully! Your order will be served at table ${tableNumber}`
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to place order");
@@ -143,37 +132,17 @@ export const OrderModal = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Utensils className="h-5 w-5" />
-            Place Your Order
+            Place Your Dine-in Order
           </DialogTitle>
           <DialogDescription>
-            Please provide your details to complete your order.
+            {tableNumber 
+              ? `Ordering for table ${tableNumber}. Add any special instructions below.`
+              : "Please scan the QR code on your table to place an order."
+            }
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Order Type Selection */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Order Type</Label>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={orderType === "dine-in" ? "default" : "outline"}
-                onClick={() => setOrderType("dine-in")}
-                className="flex-1"
-              >
-                🍽️ Dine-in
-              </Button>
-              <Button
-                type="button"
-                variant={orderType === "delivery" ? "default" : "outline"}
-                onClick={() => setOrderType("delivery")}
-                className="flex-1"
-              >
-                🚚 Delivery
-              </Button>
-            </div>
-          </div>
-
           {/* Order Summary */}
           <div className="bg-muted/20 rounded-lg p-4">
             <h4 className="font-semibold mb-2">Order Summary</h4>
@@ -202,99 +171,47 @@ export const OrderModal = ({
             </div>
           </div>
 
-          {/* Customer Details */}
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="customerName" className="flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Full Name *
-              </Label>
-              <Input
-                id="customerName"
-                value={formData.customerName}
-                onChange={(e) =>
-                  handleInputChange("customerName", e.target.value)
-                }
-                placeholder="Enter your full name"
-                required
-              />
-            </div>
-
-            <div>
-              <Label
-                htmlFor="customerPhone"
-                className="flex items-center gap-2"
-              >
-                <Phone className="h-4 w-4" />
-                Phone Number
-              </Label>
-              <Input
-                id="customerPhone"
-                value={formData.customerPhone}
-                onChange={(e) =>
-                  handleInputChange("customerPhone", e.target.value)
-                }
-                placeholder="Enter your phone number"
-              />
-            </div>
-
-            {/* Conditional fields based on order type */}
-            {orderType === "dine-in" ? (
-              <div>
-                <Label
-                  htmlFor="tableNumber"
-                  className="flex items-center gap-2"
-                >
-                  <Hash className="h-4 w-4" />
-                  Table Number *
-                </Label>
-                <Input
-                  id="tableNumber"
-                  value={formData.tableNumber}
-                  onChange={(e) =>
-                    handleInputChange("tableNumber", e.target.value)
-                  }
-                  placeholder="Enter your table number"
-                  required
-                />
+          {/* Customer Info Display */}
+          {userData && (
+            <div className="bg-muted/10 rounded-lg p-4">
+              <h4 className="font-semibold mb-2">Customer Information</h4>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Name:</span>
+                  <span>{userData.name}</span>
+                </div>
+                {userData.phone && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Phone:</span>
+                    <span>{userData.phone}</span>
+                  </div>
+                )}
+                {tableNumber && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Table:</span>
+                    <span>{tableNumber}</span>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div>
-                <Label
-                  htmlFor="deliveryAddress"
-                  className="flex items-center gap-2"
-                >
-                  <MapPin className="h-4 w-4" />
-                  Delivery Address *
-                </Label>
-                <Textarea
-                  id="deliveryAddress"
-                  value={formData.deliveryAddress}
-                  onChange={(e) =>
-                    handleInputChange("deliveryAddress", e.target.value)
-                  }
-                  placeholder="Enter your delivery address"
-                  rows={3}
-                  required
-                />
-              </div>
-            )}
-
-            <div>
-              <Label htmlFor="orderNotes" className="flex items-center gap-2">
-                <Utensils className="h-4 w-4" />
-                Special Instructions
-              </Label>
-              <Textarea
-                id="orderNotes"
-                value={formData.orderNotes}
-                onChange={(e) =>
-                  handleInputChange("orderNotes", e.target.value)
-                }
-                placeholder="Any special requests or modifications to your order..."
-                rows={2}
-              />
             </div>
+          )}
+
+          {/* Special Instructions */}
+          <div>
+            <label htmlFor="orderNotes" className="flex items-center gap-2 text-sm font-medium">
+              <Utensils className="h-4 w-4" />
+              Special Instructions
+            </label>
+            <Textarea
+              id="orderNotes"
+              value={formData.orderNotes}
+              onChange={(e) =>
+                handleInputChange("orderNotes", e.target.value)
+              }
+              placeholder="Any special requests or modifications to your order..."
+              rows={3}
+              className="mt-1"
+            />
           </div>
 
           {/* Error Message */}
@@ -315,7 +232,7 @@ export const OrderModal = ({
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || !formData.customerName.trim()}
+              disabled={isSubmitting || !userData?.name || !tableNumber}
             >
               {isSubmitting ? (
                 <>
@@ -323,9 +240,7 @@ export const OrderModal = ({
                   Placing Order...
                 </>
               ) : (
-                `Place ${
-                  orderType === "dine-in" ? "Dine-in" : "Delivery"
-                } Order`
+                "Place Dine-in Order"
               )}
             </Button>
           </DialogFooter>

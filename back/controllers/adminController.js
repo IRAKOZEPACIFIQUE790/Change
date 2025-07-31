@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { Op } = require("sequelize");
 const Admin = require("../models/Admin");
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");
@@ -66,7 +67,7 @@ const registerAdmin = async (req, res) => {
     // Check if admin already exists
     const existingAdmin = await Admin.findOne({
       where: {
-        [require("sequelize").Op.or]: [{ email }, { username }],
+        [Op.or]: [{ email }, { username }],
       },
     });
 
@@ -292,26 +293,181 @@ const updateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const [updated] = await Order.update(
-      { status },
-      {
-        where: { id },
-      }
-    );
+    logger.info("Order status update attempt:", { orderId: id, status });
 
-    if (updated) {
-      const updatedOrder = await Order.findByPk(id);
-      ResponseHandler.success(
-        res,
-        updatedOrder,
-        "Order status updated successfully"
-      );
-    } else {
-      ResponseHandler.notFound(res, "Order");
+    const order = await Order.findByPk(id);
+    if (!order) {
+      return ResponseHandler.notFound(res, "Order");
     }
+
+    order.status = status;
+    await order.save();
+
+    logger.info("Order status updated successfully:", { orderId: id, status });
+
+    ResponseHandler.success(res, "Order status updated successfully", {
+      order: {
+        id: order.id,
+        status: order.status,
+      },
+    });
   } catch (error) {
-    logger.error("Update order status error:", error);
-    ResponseHandler.error(res, "Error updating order status");
+    logger.error("Error updating order status:", error);
+    ResponseHandler.error(res, "Failed to update order status");
+  }
+};
+
+// Get Admin Profile
+const getAdminProfile = async (req, res) => {
+  try {
+    const adminId = req.admin.id;
+
+    logger.info("Admin profile request:", { adminId });
+
+    if (!adminId) {
+      logger.error("No admin ID found in request admin");
+      return ResponseHandler.error(res, "Authentication error", 401);
+    }
+
+    const admin = await Admin.findByPk(adminId, {
+      attributes: { exclude: ["password"] }, // Don't send password
+    });
+
+    if (!admin) {
+      logger.error("Admin not found:", { adminId });
+      return ResponseHandler.notFound(res, "Admin");
+    }
+
+    logger.info("Admin profile retrieved successfully:", { adminId });
+
+    ResponseHandler.success(res, "Admin profile retrieved successfully", {
+      id: admin.id,
+      username: admin.username,
+      email: admin.email,
+      name: admin.username, // Use username as name for display
+      createdAt: admin.createdAt,
+      updatedAt: admin.updatedAt,
+    });
+  } catch (error) {
+    logger.error("Error getting admin profile:", error);
+    ResponseHandler.error(res, "Failed to get admin profile");
+  }
+};
+
+// Get Notification Count
+const getNotificationCount = async (req, res) => {
+  try {
+    const adminId = req.admin.id;
+
+    logger.info("Notification count request:", { adminId });
+
+    if (!adminId) {
+      logger.error("No admin ID found in request admin");
+      return ResponseHandler.error(res, "Authentication error", 401);
+    }
+
+    // Count pending orders as notifications
+    const pendingOrdersCount = await Order.count({
+      where: {
+        status: "pending",
+      },
+    });
+
+    // Count recent orders (last 24 hours) as additional notifications
+    const recentOrdersCount = await Order.count({
+      where: {
+        createdAt: {
+          [Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+        },
+      },
+    });
+
+    const totalNotifications = pendingOrdersCount + Math.min(recentOrdersCount, 5); // Cap recent notifications
+
+    logger.info("Notification count retrieved successfully:", { 
+      adminId, 
+      pendingOrders: pendingOrdersCount,
+      recentOrders: recentOrdersCount,
+      totalNotifications 
+    });
+
+    ResponseHandler.success(res, "Notification count retrieved successfully", {
+      count: totalNotifications,
+      pendingOrders: pendingOrdersCount,
+      recentOrders: recentOrdersCount,
+    });
+  } catch (error) {
+    logger.error("Error getting notification count:", error);
+    ResponseHandler.error(res, "Failed to get notification count");
+  }
+};
+
+// Get Notifications (Detailed)
+const getNotifications = async (req, res) => {
+  try {
+    const adminId = req.admin.id;
+    const { limit = 10, offset = 0 } = req.query;
+
+    logger.info("Notifications request:", { adminId, limit, offset });
+
+    // Get pending orders
+    const pendingOrders = await Order.findAll({
+      where: {
+        status: "pending",
+      },
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+
+    // Get recent orders
+    const recentOrders = await Order.findAll({
+      where: {
+        status: {
+          [Op.ne]: "pending", // Not pending
+        },
+        createdAt: {
+          [Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+        },
+      },
+      order: [["createdAt", "DESC"]],
+      limit: Math.min(parseInt(limit), 5), // Limit recent notifications
+      offset: parseInt(offset),
+    });
+
+    const notifications = [
+      ...pendingOrders.map(order => ({
+        id: `pending-${order.id}`,
+        type: "pending_order",
+        title: "New Pending Order",
+        message: `Order #${order.id} from ${order.customerName}`,
+        data: order,
+        createdAt: order.createdAt,
+        priority: "high",
+      })),
+      ...recentOrders.map(order => ({
+        id: `recent-${order.id}`,
+        type: "recent_order",
+        title: "Recent Order",
+        message: `Order #${order.id} from ${order.customerName}`,
+        data: order,
+        createdAt: order.createdAt,
+        priority: "medium",
+      })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    logger.info("Notifications retrieved successfully:", { 
+      adminId, 
+      totalNotifications: notifications.length 
+    });
+
+    ResponseHandler.success(res, "Notifications retrieved successfully", {
+      notifications,
+      total: notifications.length,
+    });
+  } catch (error) {
+    logger.error("Error getting notifications:", error);
+    ResponseHandler.error(res, "Failed to get notifications");
   }
 };
 
@@ -325,5 +481,8 @@ module.exports = {
   deleteMenuItem,
   getAllOrders,
   updateOrderStatus,
-  upload
+  getAdminProfile,
+  getNotificationCount,
+  getNotifications,
+  upload,
 };

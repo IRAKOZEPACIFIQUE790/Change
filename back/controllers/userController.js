@@ -1,5 +1,6 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { Op } = require("sequelize");
 const User = require("../models/User");
 const Order = require("../models/Order");
 const ResponseHandler = require("../utils/responseHandler");
@@ -213,28 +214,169 @@ const getUserOrders = async (req, res) => {
 const cancelOrder = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+
+    logger.info("Order cancellation attempt:", { orderId: id, userId });
 
     const order = await Order.findOne({
-      where: { id, userId: req.user.id },
+      where: { id, userId },
     });
 
     if (!order) {
       return ResponseHandler.notFound(res, "Order");
     }
 
-    if (order.status === "delivered" || order.status === "cancelled") {
-      return ResponseHandler.error(res, "Cannot cancel this order", 400);
+    if (order.status === "cancelled") {
+      return ResponseHandler.error(res, "Order is already cancelled", 400);
     }
 
-    await Order.update(
-      { status: "cancelled" },
-      { where: { id, userId: req.user.id } }
-    );
+    if (order.status !== "pending") {
+      return ResponseHandler.error(
+        res,
+        "Only pending orders can be cancelled",
+        400
+      );
+    }
 
-    ResponseHandler.success(res, null, "Order cancelled successfully");
+    order.status = "cancelled";
+    await order.save();
+
+    logger.info("Order cancelled successfully:", { orderId: id, userId });
+
+    ResponseHandler.success(res, "Order cancelled successfully", {
+      order: {
+        id: order.id,
+        status: order.status,
+      },
+    });
   } catch (error) {
-    logger.error("Cancel order error:", error);
-    ResponseHandler.error(res, "Error cancelling order");
+    logger.error("Error cancelling order:", error);
+    ResponseHandler.error(res, "Failed to cancel order");
+  }
+};
+
+// Get User Notification Count
+const getUserNotificationCount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    logger.info("User notification count request:", { userId });
+
+    if (!userId) {
+      logger.error("No user ID found in request user");
+      return ResponseHandler.error(res, "Authentication error", 401);
+    }
+
+    // Count user's active orders as notifications
+    const activeOrdersCount = await Order.count({
+      where: {
+        userId,
+        status: {
+          [Op.in]: ["pending", "preparing", "ready"],
+        },
+      },
+    });
+
+    // Count recent orders (last 24 hours) as additional notifications
+    const recentOrdersCount = await Order.count({
+      where: {
+        userId,
+        createdAt: {
+          [Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+        },
+      },
+    });
+
+    const totalNotifications = activeOrdersCount + Math.min(recentOrdersCount, 3); // Cap recent notifications
+
+    logger.info("User notification count retrieved successfully:", { 
+      userId, 
+      activeOrders: activeOrdersCount,
+      recentOrders: recentOrdersCount,
+      totalNotifications 
+    });
+
+    ResponseHandler.success(res, "Notification count retrieved successfully", {
+      count: totalNotifications,
+      activeOrders: activeOrdersCount,
+      recentOrders: recentOrdersCount,
+    });
+  } catch (error) {
+    logger.error("Error getting user notification count:", error);
+    ResponseHandler.error(res, "Failed to get notification count");
+  }
+};
+
+// Get User Notifications (Detailed)
+const getUserNotifications = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { limit = 10, offset = 0 } = req.query;
+
+    logger.info("User notifications request:", { userId, limit, offset });
+
+    // Get active orders
+    const activeOrders = await Order.findAll({
+      where: {
+        userId,
+        status: {
+          [Op.in]: ["pending", "preparing", "ready"],
+        },
+      },
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+
+    // Get recent orders
+    const recentOrders = await Order.findAll({
+      where: {
+        userId,
+        status: {
+          [Op.notIn]: ["pending", "preparing", "ready"], // Not active
+        },
+        createdAt: {
+          [Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+        },
+      },
+      order: [["createdAt", "DESC"]],
+      limit: Math.min(parseInt(limit), 3), // Limit recent notifications
+      offset: parseInt(offset),
+    });
+
+    const notifications = [
+      ...activeOrders.map(order => ({
+        id: `active-${order.id}`,
+        type: "active_order",
+        title: `Order #${order.id} Status`,
+        message: `Your order is ${order.status}`,
+        data: order,
+        createdAt: order.createdAt,
+        priority: "high",
+      })),
+      ...recentOrders.map(order => ({
+        id: `recent-${order.id}`,
+        type: "recent_order",
+        title: "Recent Order",
+        message: `Order #${order.id} - ${order.status}`,
+        data: order,
+        createdAt: order.createdAt,
+        priority: "medium",
+      })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    logger.info("User notifications retrieved successfully:", { 
+      userId, 
+      totalNotifications: notifications.length 
+    });
+
+    ResponseHandler.success(res, "Notifications retrieved successfully", {
+      notifications,
+      total: notifications.length,
+    });
+  } catch (error) {
+    logger.error("Error getting user notifications:", error);
+    ResponseHandler.error(res, "Failed to get notifications");
   }
 };
 
@@ -246,4 +388,6 @@ module.exports = {
   createOrder,
   getUserOrders,
   cancelOrder,
+  getUserNotificationCount,
+  getUserNotifications,
 };

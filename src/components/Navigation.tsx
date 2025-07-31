@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,10 +22,144 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/authContext";
 
+interface UserProfile {
+  name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+}
+
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  priority: string;
+  createdAt: string;
+}
+
 export const Navigation = () => {
   const { userToken, adminToken, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
+
+  // Fetch user profile data
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!userToken && !adminToken) {
+        setUserProfile(null);
+        return;
+      }
+
+      setIsLoadingProfile(true);
+      try {
+        const token = userToken || adminToken;
+        const endpoint = userToken ? "/api/user/profile" : "/api/admin/profile";
+        
+        const response = await fetch(`http://localhost:5000${endpoint}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUserProfile({
+            name: data.data.name || data.data.username || "User",
+            email: data.data.email || "user@example.com",
+            phone: data.data.phone,
+            address: data.data.address,
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch user profile:", error);
+        // Set default profile data
+        setUserProfile({
+          name: userToken ? "Customer" : "Administrator",
+          email: userToken ? "customer@example.com" : "admin@epicurean.com",
+        });
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    fetchUserProfile();
+  }, [userToken, adminToken]);
+
+  // Fetch notification count
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (!userToken && !adminToken) {
+        setNotificationCount(0);
+        return;
+      }
+
+      try {
+        const token = userToken || adminToken;
+        const endpoint = userToken ? "/api/user/notifications/count" : "/api/admin/notifications/count";
+        
+        const response = await fetch(`http://localhost:5000${endpoint}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setNotificationCount(data.data.count || 0);
+        }
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error);
+        setNotificationCount(0);
+      }
+    };
+
+    // Fetch detailed notifications
+    const fetchDetailedNotifications = async () => {
+      if (!userToken && !adminToken) {
+        setNotifications([]);
+        return;
+      }
+
+      setIsLoadingNotifications(true);
+      try {
+        const token = userToken || adminToken;
+        const endpoint = userToken ? "/api/user/notifications" : "/api/admin/notifications";
+        
+        const response = await fetch(`http://localhost:5000${endpoint}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setNotifications(data.data.notifications || []);
+        }
+      } catch (error) {
+        console.error("Failed to fetch detailed notifications:", error);
+        setNotifications([]);
+      } finally {
+        setIsLoadingNotifications(false);
+      }
+    };
+
+    // Handle notification click
+    const handleNotificationClick = () => {
+      setIsNotificationsOpen(!isNotificationsOpen);
+      if (!isNotificationsOpen) {
+        fetchDetailedNotifications();
+      }
+    };
+
+    fetchNotifications();
+}, [userToken, adminToken]);
 
   const handleLogout = () => {
     logout();
@@ -98,13 +232,56 @@ export const Navigation = () => {
           {/* Right side - Auth and Actions */}
           <div className="flex items-center space-x-4">
             {/* Notifications */}
-            {userToken && (
+            {(userToken || adminToken) && (
+              <DropdownMenu open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
+                <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="relative">
                 <Bell className="h-5 w-5" />
+                    {notificationCount > 0 && (
                 <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">
-                  2
+                        {notificationCount}
                 </Badge>
+                    )}
               </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-80" align="end" forceMount>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Notifications</span>
+                      {isLoadingNotifications && (
+                        <span className="text-xs text-muted-foreground">Loading...</span>
+                      )}
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      {isLoadingNotifications ? "Loading notifications..." : "No notifications"}
+                    </div>
+                  ) : (
+                    notifications.map((notification) => (
+                      <DropdownMenuItem key={notification.id} className="cursor-pointer">
+                        <div className="flex flex-col space-y-1 w-full">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">{notification.title}</span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              notification.priority === "high" 
+                                ? "bg-red-100 text-red-700" 
+                                : "bg-blue-100 text-blue-700"
+                            }`}>
+                              {notification.priority}
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{notification.message}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(notification.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
 
             {/* User Menu */}
@@ -124,10 +301,10 @@ export const Navigation = () => {
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
                       <p className="text-sm font-medium leading-none">
-                        Customer
+                        {isLoadingProfile ? "Loading..." : userProfile?.name || "Customer"}
                       </p>
                       <p className="text-xs leading-none text-muted-foreground">
-                        customer@example.com
+                        {isLoadingProfile ? "..." : userProfile?.email || "customer@example.com"}
                       </p>
                     </div>
                   </DropdownMenuLabel>
@@ -170,10 +347,10 @@ export const Navigation = () => {
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
                       <p className="text-sm font-medium leading-none">
-                        Administrator
+                        {isLoadingProfile ? "Loading..." : userProfile?.name || "Administrator"}
                       </p>
                       <p className="text-xs leading-none text-muted-foreground">
-                        admin@epicurean.com
+                        {isLoadingProfile ? "..." : userProfile?.email || "admin@epicurean.com"}
                       </p>
                     </div>
                   </DropdownMenuLabel>

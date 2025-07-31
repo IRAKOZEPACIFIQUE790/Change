@@ -35,10 +35,10 @@ const Index = () => {
     const fetchMenuData = async () => {
       try {
         const response = await publicAPI.getMenu();
-        setMenuItems(response.data || []);
+        setMenuItems(response.data.items || []);
         
         // Extract unique categories
-        const uniqueCategories = [...new Set(response.data?.map((item: MenuItemType) => item.category) || [])];
+        const uniqueCategories = [...new Set(response.data.items.map((item: MenuItemType) => item.category) || [])];
         setCategories(uniqueCategories);
         
         if (uniqueCategories.length > 0 && !uniqueCategories.includes(activeCategory)) {
