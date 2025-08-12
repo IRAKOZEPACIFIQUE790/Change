@@ -177,22 +177,31 @@ const loginAdmin = async (req, res) => {
 const uploadImage = async (req, res) => {
   try {
     if (!req.file) {
-      return ResponseHandler.error(res, 'No image file provided', 400);
+      return ResponseHandler.error(res, "No image file provided", 400);
     }
 
     const imageUrl = `/uploads/${req.file.filename}`;
-    ResponseHandler.success(res, { imageUrl }, 'Image uploaded successfully');
+    ResponseHandler.success(res, { imageUrl }, "Image uploaded successfully");
   } catch (error) {
-    logger.error('Image upload error:', error);
-    ResponseHandler.error(res, 'Error uploading image');
+    logger.error("Image upload error:", error);
+    ResponseHandler.error(res, "Error uploading image");
   }
 };
 
 // Create menu item with image support
 const createMenuItem = async (req, res) => {
   try {
-    const { name, description, price, category, prepTime, rating, popular, isAvailable } = req.body;
-    
+    const {
+      name,
+      description,
+      price,
+      category,
+      prepTime,
+      rating,
+      popular,
+      isAvailable,
+    } = req.body;
+
     // Handle image upload if present
     let imageUrl = null;
     if (req.file) {
@@ -207,14 +216,19 @@ const createMenuItem = async (req, res) => {
       image: imageUrl,
       prepTime,
       rating: parseFloat(rating) || 0,
-      popular: popular === 'true' || popular === true,
-      isAvailable: isAvailable !== 'false' && isAvailable !== false
+      popular: popular === "true" || popular === true,
+      isAvailable: isAvailable !== "false" && isAvailable !== false,
     });
 
-    ResponseHandler.success(res, menuItem, 'Menu item created successfully', 201);
+    ResponseHandler.success(
+      res,
+      menuItem,
+      "Menu item created successfully",
+      201
+    );
   } catch (error) {
-    logger.error('Create menu item error:', error);
-    ResponseHandler.error(res, 'Error creating menu item');
+    logger.error("Create menu item error:", error);
+    ResponseHandler.error(res, "Error creating menu item");
   }
 };
 
@@ -382,13 +396,14 @@ const getNotificationCount = async (req, res) => {
       },
     });
 
-    const totalNotifications = pendingOrdersCount + Math.min(recentOrdersCount, 5); // Cap recent notifications
+    const totalNotifications =
+      pendingOrdersCount + Math.min(recentOrdersCount, 5); // Cap recent notifications
 
-    logger.info("Notification count retrieved successfully:", { 
-      adminId, 
+    logger.info("Notification count retrieved successfully:", {
+      adminId,
       pendingOrders: pendingOrdersCount,
       recentOrders: recentOrdersCount,
-      totalNotifications 
+      totalNotifications,
     });
 
     ResponseHandler.success(res, "Notification count retrieved successfully", {
@@ -436,7 +451,7 @@ const getNotifications = async (req, res) => {
     });
 
     const notifications = [
-      ...pendingOrders.map(order => ({
+      ...pendingOrders.map((order) => ({
         id: `pending-${order.id}`,
         type: "pending_order",
         title: "New Pending Order",
@@ -445,7 +460,7 @@ const getNotifications = async (req, res) => {
         createdAt: order.createdAt,
         priority: "high",
       })),
-      ...recentOrders.map(order => ({
+      ...recentOrders.map((order) => ({
         id: `recent-${order.id}`,
         type: "recent_order",
         title: "Recent Order",
@@ -456,18 +471,82 @@ const getNotifications = async (req, res) => {
       })),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    logger.info("Notifications retrieved successfully:", { 
-      adminId, 
-      totalNotifications: notifications.length 
+    logger.info("Notifications retrieved successfully:", {
+      adminId,
+      totalNotifications: notifications.length,
     });
 
-    ResponseHandler.success(res, "Notifications retrieved successfully", {
-      notifications,
-      total: notifications.length,
-    });
+    ResponseHandler.success(
+      res,
+      {
+        notifications,
+        total: notifications.length,
+      },
+      "Notifications retrieved successfully"
+    );
   } catch (error) {
     logger.error("Error getting notifications:", error);
     ResponseHandler.error(res, "Failed to get notifications");
+  }
+};
+
+// Stats: Top Ordered Items
+const getTopItems = async (req, res) => {
+  try {
+    const {
+      days = "7",
+      status = "delivered",
+      rankBy = "quantity",
+      limit = "5",
+    } = req.query;
+
+    const daysNum = parseInt(days, 10);
+    const lim = Math.min(parseInt(limit, 10) || 5, 50); // cap to 50
+
+    const where = {};
+    if (!isNaN(daysNum) && daysNum > 0) {
+      where.createdAt = {
+        [Op.gte]: new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000),
+      };
+    }
+    if (status && status !== "all") {
+      where.status = status;
+    }
+
+    const orders = await Order.findAll({
+      where,
+      attributes: ["id", "items", "totalAmount", "status", "createdAt"],
+      order: [["createdAt", "DESC"]],
+    });
+
+    const aggregates = new Map();
+    for (const order of orders) {
+      const items = order.items || [];
+      for (const it of items) {
+        const id = Number(it.id);
+        const qty = Number(it.quantity) || 0;
+        const price = Number(it.price) || 0;
+        const name = it.name || `Item ${id}`;
+        if (!aggregates.has(id)) {
+          aggregates.set(id, { id, name, totalQuantity: 0, totalRevenue: 0 });
+        }
+        const cur = aggregates.get(id);
+        cur.totalQuantity += qty;
+        cur.totalRevenue += qty * price;
+      }
+    }
+
+    const itemsArr = Array.from(aggregates.values());
+    itemsArr.sort((a, b) => {
+      if (rankBy === "revenue") return b.totalRevenue - a.totalRevenue;
+      return b.totalQuantity - a.totalQuantity;
+    });
+
+    const top = itemsArr.slice(0, lim);
+    ResponseHandler.success(res, top, "Top items computed successfully");
+  } catch (error) {
+    logger.error("Error computing top items:", error);
+    ResponseHandler.error(res, "Failed to compute top items");
   }
 };
 
@@ -484,5 +563,6 @@ module.exports = {
   getAdminProfile,
   getNotificationCount,
   getNotifications,
+  getTopItems,
   upload,
 };

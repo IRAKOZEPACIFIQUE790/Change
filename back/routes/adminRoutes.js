@@ -18,6 +18,7 @@ const {
   getAdminProfile,
   getNotificationCount,
   getNotifications,
+  getTopItems,
   upload,
 } = require("../controllers/adminController");
 
@@ -58,6 +59,10 @@ router.delete("/menu-items/:id", authenticateAdmin, deleteMenuItem);
 
 // Order Management (Protected)
 router.get("/orders", authenticateAdmin, getAllOrders);
+
+// Stats (Protected)
+router.get("/stats/top-items", authenticateAdmin, getTopItems);
+
 router.put("/orders/:id/status", authenticateAdmin, updateOrderStatus);
 
 module.exports = router;
