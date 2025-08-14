@@ -4,6 +4,7 @@ const User = require('../models/User');
 const ResponseHandler = require('../utils/responseHandler');
 const logger = require('../utils/logger');
 
+// Legacy admin auth - use adminAuth.js for new implementations
 const authenticateAdmin = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');

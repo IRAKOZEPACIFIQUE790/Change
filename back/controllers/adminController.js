@@ -4,6 +4,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const { Op } = require("sequelize");
+const sequelize = require("../config/database");
 const Admin = require("../models/Admin");
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");
@@ -490,6 +491,332 @@ const getNotifications = async (req, res) => {
   }
 };
 
+// Enhanced Statistics Functions
+const getDashboardStats = async (req, res) => {
+  try {
+    const adminId = req.admin.id;
+    const { days = 30 } = req.query;
+    
+    const dateFilter = {
+      createdAt: {
+        [Op.gte]: new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000)
+      }
+    };
+
+    // Basic stats
+    const [totalOrders, totalRevenue, totalMenuItems, activeMenuItems] = await Promise.all([
+      Order.count({ where: dateFilter }),
+      Order.sum('totalAmount', { where: { ...dateFilter, status: { [Op.ne]: 'cancelled' } } }),
+      MenuItem.count(),
+      MenuItem.count({ where: { isAvailable: true } })
+    ]);
+
+    // Orders by status
+    const ordersByStatus = await Order.findAll({
+      where: dateFilter,
+      attributes: [
+        'status',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+        [sequelize.fn('SUM', sequelize.col('totalAmount')), 'revenue']
+      ],
+      group: ['status'],
+      raw: true
+    });
+
+    // Orders by type
+    const ordersByType = await Order.findAll({
+      where: dateFilter,
+      attributes: [
+        'orderType',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+        [sequelize.fn('SUM', sequelize.col('totalAmount')), 'revenue']
+      ],
+      group: ['orderType'],
+      raw: true
+    });
+
+    // Daily revenue trend (last 7 days)
+    const dailyRevenue = await Order.findAll({
+      where: {
+        createdAt: {
+          [Op.gte]: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        },
+        status: { [Op.ne]: 'cancelled' }
+      },
+      attributes: [
+        [sequelize.fn('DATE', sequelize.col('createdAt')), 'date'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'orders'],
+        [sequelize.fn('SUM', sequelize.col('totalAmount')), 'revenue']
+      ],
+      group: [sequelize.fn('DATE', sequelize.col('createdAt'))],
+      order: [[sequelize.fn('DATE', sequelize.col('createdAt')), 'ASC']],
+      raw: true
+    });
+
+    // Peak hours analysis
+    const peakHours = await Order.findAll({
+      where: dateFilter,
+      attributes: [
+        [sequelize.fn('HOUR', sequelize.col('createdAt')), 'hour'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+      ],
+      group: [sequelize.fn('HOUR', sequelize.col('createdAt'))],
+      order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
+      raw: true
+    });
+
+    // Category performance
+    const categoryStats = await sequelize.query(`
+      SELECT 
+        mi.category,
+        COUNT(DISTINCT o.id) as order_count,
+        SUM(CAST(JSON_EXTRACT(item.value, '$.quantity') AS INTEGER)) as total_quantity,
+        SUM(CAST(JSON_EXTRACT(item.value, '$.quantity') AS INTEGER) * CAST(JSON_EXTRACT(item.value, '$.price') AS DECIMAL(10,2))) as total_revenue
+      FROM orders o
+      CROSS JOIN JSON_EACH(o.items) as item
+      JOIN menu_items mi ON mi.id = CAST(JSON_EXTRACT(item.value, '$.id') AS INTEGER)
+      WHERE o.createdAt >= DATE('now', '-${parseInt(days)} days')
+        AND o.status != 'cancelled'
+      GROUP BY mi.category
+      ORDER BY total_revenue DESC
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    ResponseHandler.success(res, {
+      overview: {
+        totalOrders: totalOrders || 0,
+        totalRevenue: parseFloat(totalRevenue) || 0,
+        totalMenuItems: totalMenuItems || 0,
+        activeMenuItems: activeMenuItems || 0,
+        averageOrderValue: totalOrders > 0 ? (parseFloat(totalRevenue) || 0) / totalOrders : 0
+      },
+      ordersByStatus: ordersByStatus.map(item => ({
+        status: item.status,
+        count: parseInt(item.count),
+        revenue: parseFloat(item.revenue) || 0
+      })),
+      ordersByType: ordersByType.map(item => ({
+        type: item.orderType,
+        count: parseInt(item.count),
+        revenue: parseFloat(item.revenue) || 0
+      })),
+      dailyRevenue: dailyRevenue.map(item => ({
+        date: item.date,
+        orders: parseInt(item.orders),
+        revenue: parseFloat(item.revenue) || 0
+      })),
+      peakHours: peakHours.map(item => ({
+        hour: parseInt(item.hour),
+        count: parseInt(item.count)
+      })),
+      categoryStats: categoryStats.map(item => ({
+        category: item.category,
+        orderCount: parseInt(item.order_count),
+        totalQuantity: parseInt(item.total_quantity),
+        totalRevenue: parseFloat(item.total_revenue) || 0
+      }))
+    }, "Dashboard statistics retrieved successfully");
+
+  } catch (error) {
+    logger.error("Error getting dashboard stats:", error);
+    ResponseHandler.error(res, "Failed to get dashboard statistics");
+  }
+};
+
+// Get Recent Activity
+const getRecentActivity = async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    
+    const recentOrders = await Order.findAll({
+      limit: parseInt(limit),
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'customerName', 'totalAmount', 'status', 'orderType', 'createdAt']
+    });
+
+    const recentMenuItems = await MenuItem.findAll({
+      limit: 5,
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'name', 'category', 'price', 'isAvailable', 'createdAt']
+    });
+
+    ResponseHandler.success(res, {
+      recentOrders: recentOrders.map(order => ({
+        id: order.id,
+        customerName: order.customerName,
+        totalAmount: parseFloat(order.totalAmount),
+        status: order.status,
+        orderType: order.orderType,
+        createdAt: order.createdAt,
+        timeAgo: getTimeAgo(order.createdAt)
+      })),
+      recentMenuItems: recentMenuItems.map(item => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        price: parseFloat(item.price),
+        isAvailable: item.isAvailable,
+        createdAt: item.createdAt,
+        timeAgo: getTimeAgo(item.createdAt)
+      }))
+    }, "Recent activity retrieved successfully");
+
+  } catch (error) {
+    logger.error("Error getting recent activity:", error);
+    ResponseHandler.error(res, "Failed to get recent activity");
+  }
+};
+
+// Helper function to calculate time ago
+const getTimeAgo = (date) => {
+  const now = new Date();
+  const diffInMs = now - new Date(date);
+  const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  const diffInDays = Math.floor(diffInHours / 24);
+
+  if (diffInMinutes < 1) return 'Just now';
+  if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+  if (diffInHours < 24) return `${diffInHours}h ago`;
+  return `${diffInDays}d ago`;
+};
+
+// Enhanced Menu Management
+const getMenuItemsWithStats = async (req, res) => {
+  try {
+    const { category, search, sortBy = 'createdAt', order = 'DESC', limit = 50, offset = 0 } = req.query;
+    
+    let whereClause = {};
+    if (category && category !== 'all') {
+      whereClause.category = category;
+    }
+    if (search) {
+      whereClause[Op.or] = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { description: { [Op.iLike]: `%${search}%` } }
+      ];
+    }
+
+    const menuItems = await MenuItem.findAll({
+      where: whereClause,
+      order: [[sortBy, order.toUpperCase()]],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    // Get order statistics for each menu item
+    const menuItemsWithStats = await Promise.all(
+      menuItems.map(async (item) => {
+        const orderStats = await sequelize.query(`
+          SELECT 
+            COUNT(DISTINCT o.id) as order_count,
+            SUM(CAST(JSON_EXTRACT(item.value, '$.quantity') AS INTEGER)) as total_quantity,
+            SUM(CAST(JSON_EXTRACT(item.value, '$.quantity') AS INTEGER) * CAST(JSON_EXTRACT(item.value, '$.price') AS DECIMAL(10,2))) as total_revenue
+          FROM orders o
+          CROSS JOIN JSON_EACH(o.items) as item
+          WHERE CAST(JSON_EXTRACT(item.value, '$.id') AS INTEGER) = ${item.id}
+            AND o.status != 'cancelled'
+            AND o.createdAt >= DATE('now', '-30 days')
+        `, { type: sequelize.QueryTypes.SELECT });
+
+        const stats = orderStats[0] || { order_count: 0, total_quantity: 0, total_revenue: 0 };
+        
+        return {
+          ...item.toJSON(),
+          stats: {
+            orderCount: parseInt(stats.order_count) || 0,
+            totalQuantity: parseInt(stats.total_quantity) || 0,
+            totalRevenue: parseFloat(stats.total_revenue) || 0
+          }
+        };
+      })
+    );
+
+    const total = await MenuItem.count({ where: whereClause });
+
+    ResponseHandler.success(res, {
+      items: menuItemsWithStats,
+      pagination: {
+        total,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: (parseInt(offset) + parseInt(limit)) < total
+      }
+    }, "Menu items with statistics retrieved successfully");
+
+  } catch (error) {
+    logger.error("Error getting menu items with stats:", error);
+    ResponseHandler.error(res, "Failed to get menu items with statistics");
+  }
+};
+
+// Enhanced Order Management
+const getOrdersWithFilters = async (req, res) => {
+  try {
+    const { 
+      status, 
+      orderType, 
+      dateFrom, 
+      dateTo, 
+      search,
+      sortBy = 'createdAt',
+      order = 'DESC',
+      limit = 50,
+      offset = 0
+    } = req.query;
+
+    let whereClause = {};
+    
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+    
+    if (orderType && orderType !== 'all') {
+      whereClause.orderType = orderType;
+    }
+    
+    if (dateFrom || dateTo) {
+      whereClause.createdAt = {};
+      if (dateFrom) whereClause.createdAt[Op.gte] = new Date(dateFrom);
+      if (dateTo) whereClause.createdAt[Op.lte] = new Date(dateTo);
+    }
+    
+    if (search) {
+      whereClause[Op.or] = [
+        { customerName: { [Op.iLike]: `%${search}%` } },
+        { customerPhone: { [Op.iLike]: `%${search}%` } },
+        { id: { [Op.eq]: parseInt(search) || 0 } }
+      ];
+    }
+
+    const orders = await Order.findAll({
+      where: whereClause,
+      order: [[sortBy, order.toUpperCase()]],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    const total = await Order.count({ where: whereClause });
+
+    ResponseHandler.success(res, {
+      orders: orders.map(order => ({
+        ...order.toJSON(),
+        itemCount: Array.isArray(order.items) ? order.items.length : 0,
+        timeAgo: getTimeAgo(order.createdAt)
+      })),
+      pagination: {
+        total,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: (parseInt(offset) + parseInt(limit)) < total
+      }
+    }, "Orders retrieved successfully");
+
+  } catch (error) {
+    logger.error("Error getting orders with filters:", error);
+    ResponseHandler.error(res, "Failed to get orders");
+  }
+};
+
 // Stats: Top Ordered Items
 const getTopItems = async (req, res) => {
   try {
@@ -563,6 +890,10 @@ module.exports = {
   getAdminProfile,
   getNotificationCount,
   getNotifications,
+  getDashboardStats,
+  getRecentActivity,
+  getMenuItemsWithStats,
+  getOrdersWithFilters,
   getTopItems,
   upload,
 };
